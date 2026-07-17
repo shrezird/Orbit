@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en" style="background: #161616">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Orbit</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="topbar" hidden>
+    <div id="topbar-ctx"></div>
+  </header>
+
+  <main id="board-root"></main>
+
+  <div id="modal-root"></div>
+  <div id="lightbox-root"></div>
+  <div id="confirm-root"></div>
+
+  <div id="plugin-topbar-slot" class="plugin-slot plugin-slot-topbar"></div>
+  <div id="plugin-home-slot" class="plugin-slot plugin-slot-home"></div>
+  <div id="plugin-modal-slot" class="plugin-slot plugin-slot-modal"></div>
+
+  <footer id="app-footer">
+    <span id="footer-phrase"></span>
+    <span id="plugin-footer-slot" class="plugin-slot plugin-slot-footer"></span>
+    <span id="footer-version">Orbit - Stable Release 1.0</span>
+  </footer>
+
+  <script src="app.js"></script>
+  <script src="plugin-host.js"></script>
+</body>
+</html>

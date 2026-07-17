@@ -1,0 +1,10 @@
+{
+  "id": "discord-rpc",
+  "name": "Discord Rich Presence",
+  "version": "1.0.0",
+  "orbit": ">=1.0.0",
+  "description": "Shows your current board, card, and session time as your Discord status",
+  "author": "Claude",
+  "permissions": ["network"],
+  "hooks": ["on_board_open", "on_app_exit"]
+}
