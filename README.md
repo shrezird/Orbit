@@ -4,19 +4,24 @@
 
 Orbit is a local-first kanban board app for your desktop. Boards, lists, cards, checklists, tags, and attachments — all stored as plain files on your machine. No account, no cloud, no telemetry, works fully offline.
 
-<!-- Add a screenshot here: ![Orbit screenshot](docs/screenshot.png) -->
+<img width="2160" height="2160" alt="icon" src="https://github.com/user-attachments/assets/aa3c4b9a-8634-41ca-adfc-e300735eca2b" />
 
 ## Features
+<img width="1920" height="1032" alt="cover1" src="https://github.com/user-attachments/assets/0c002e60-3298-431d-b507-5b27f21ed25c" />
 
 - **Boards → lists → cards**, with drag-and-drop everywhere (cards, lists, checklist items).
 - **Rich cards** — descriptions, accent colors, up to 20 tags, multiple checklists, and cover images.
 - **Attachments** — drop images, video, audio, and documents straight onto a card. Images get an in-app lightbox; everything else opens with your system's default app. Drag-and-drop supports files up to 64 MB; bigger files can still be attached via the file picker (they just won't preview inline).
 - **Inline text formatting** in names, titles, and descriptions (see [Formatting](#formatting)).
+
+<img width="1920" height="1032" alt="cover2" src="https://github.com/user-attachments/assets/af60ab2e-88bd-475a-9dc6-456009045bd2" />
+
 - **Search** across boards and within a board, including `#tag` search.
 - **Pinned boards** for the things you're actually working on.
 - **Plain-file storage** — every board is a folder with a human-readable `board.json` and its attachments. Back up or sync by copying a folder (see [Where your data lives](#where-your-data-lives)).
 - **Plugins** — extend Orbit with Python backend plugins and optional JavaScript UI (see [Plugins](#plugins)).
-- **Custom font** — drop any `.ttf`/`.otf`/`.woff`/`.woff2` into the `font/` folder and Orbit uses it (weight and style are inferred from the filename).
+
+<img width="1920" height="1032" alt="cover3" src="https://github.com/user-attachments/assets/8484cee1-fc5e-45db-81df-16f096853a72" />
 
 ## Getting started
 
