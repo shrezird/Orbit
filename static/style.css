@@ -664,6 +664,18 @@ input:focus, textarea:focus { outline: 2px solid var(--focus); outline-offset: -
 .tag-row .tag-chip { font-size: 12px; padding: 3px 8px; }
 .tag-x { display: inline-flex; color: var(--muted); }
 .tag-x:hover { color: var(--danger); }
+.tag-chip .tag-text { cursor: text; }
+
+.tag-edit-input {
+  font-size: 12px;
+  padding: 3px 8px;
+  color: var(--text);
+  background: var(--panel-3);
+  border: none;
+  border-radius: 2px;
+}
+
+.tag-edit-input:focus { outline: none; }
 .tag-input {
   width: 120px;
   padding: 4px 8px;
@@ -823,7 +835,163 @@ input:focus, textarea:focus { outline: 2px solid var(--focus); outline-offset: -
 .att-actions button.danger:hover { color: var(--danger); }
 
 
-.modal-foot { display: flex; justify-content: flex-end; }
+.cl-add-checklist { margin-bottom: 8px; }
+
+.cl-wrap { display: flex; flex-direction: column; gap: 12px; }
+
+.cl-block {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cl-block.drag-src { opacity: 0.4; }
+
+.cl-placeholder {
+  min-height: 44px;
+  flex-shrink: 0;
+  border: 2px dashed var(--border);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  animation: fade-in 0.12s ease;
+}
+
+.cl-head { display: flex; align-items: center; gap: 8px; }
+.cl-head[draggable="true"] { cursor: grab; }
+
+.cl-title {
+  flex: 1;
+  font-size: 13px;
+  word-break: break-word;
+  cursor: text;
+  padding: 1px 0;
+}
+
+.cl-title-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 1px 0;
+}
+
+.cl-title-input:focus { outline: none; }
+
+.cl-count { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+
+.cl-head .icon-btn { padding: 4px; }
+
+.cl-bar {
+  height: 5px;
+  border-radius: 99px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+
+.cl-bar-fill {
+  height: 100%;
+  width: 0;
+  border-radius: 99px;
+  background: var(--text);
+  transition: width 0.25s ease;
+}
+
+.cl-items { display: flex; flex-direction: column; }
+.cl-items:empty { display: none; }
+
+.cl-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  border-radius: 3px;
+}
+
+.cl-item:hover { background: rgba(255, 255, 255, 0.03); }
+.cl-item.dragging { opacity: 0.4; }
+
+.cl-item-placeholder {
+  min-height: 30px;
+  flex-shrink: 0;
+  margin: 0 -6px;
+  border: 2px dashed var(--border);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.04);
+  animation: fade-in 0.12s ease;
+}
+
+.cl-check {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.cl-check:hover { border-color: var(--focus); }
+.cl-check:focus { outline: none; }
+.cl-check:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.cl-check:checked { background: var(--text); border-color: var(--text); }
+
+.cl-item-text {
+  flex: 1;
+  font-size: 13px;
+  line-height: 20px;
+  word-break: break-word;
+  cursor: text;
+  padding: 1px 0;
+  transition: color 0.15s ease;
+}
+
+.cl-item.done .cl-item-text { color: var(--muted); text-decoration: line-through; }
+
+.cl-item-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 1px 0;
+}
+
+.cl-item-input:focus { outline: none; }
+
+.cl-item .cl-item-del { padding: 3px; opacity: 0; }
+.cl-item:hover .cl-item-del,
+.cl-item .cl-item-del:focus-visible { opacity: 1; }
+
+.cl-add {
+  width: 100%;
+  margin-top: 2px;
+  font-size: 12.5px;
+  padding: 5px 8px;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 2px;
+}
+
+.cl-add:focus { outline: none; border-style: solid; border-color: var(--focus); }
+
+.cl-badge.cl-complete { color: #57a05a; }
+
+
+.modal-foot { display: flex; justify-content: flex-end; margin: -14px -10px -18px 0; }
 
 .delete-card { color: var(--danger); }
 .delete-card:hover { background: rgba(229, 72, 77, 0.12); color: var(--danger); }

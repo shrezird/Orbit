@@ -28,6 +28,7 @@ const ICONS = {
   plug: '<path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
   folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
   refresh: '<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>',
+  check: '<polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
 };
 
 const COLORS = {
@@ -78,6 +79,8 @@ function boardDoc() {
     lists: state.board.lists.map((l) => ({ id: l.id, name: l.name,
       cards: l.cards.map((c) => {
         const copy = { ...c, tags: [...(c.tags || [])],
+          checklists: (c.checklists || []).map((cl) => ({ ...cl,
+            items: cl.items.map((it) => ({ ...it })) })),
           attachments: (c.attachments || []).map((a) => ({ ...a })) };
         delete copy.list_id;
         return copy;
@@ -685,11 +688,6 @@ async function togglePlugin(p) {
   render();
 }
 
-// Spin by rotating a <g> inside the SVG canvas, not by transforming the
-// <svg> element: an element transform puts the icon on its own compositor
-// layer whose raster is snapped to whole device pixels, so whenever the
-// flex-centered dialog lands on a half pixel (or DPI scale is 125%/150%)
-// the icon orbits by ~a pixel instead of spinning in place.
 function spinRefreshIcon(svg) {
   if (!svg) return null;
   let g = svg.firstElementChild;
@@ -714,7 +712,6 @@ function spinRefreshIcon(svg) {
     const dur = (to - from) / 360 * TURN_MS * 1.5;
     const t0 = performance.now();
     requestAnimationFrame(function land(now) {
-      // 1.5x - 0.5x^3 starts at the spin's angular velocity, eases to rest.
       const x = Math.min((now - t0) / dur, 1);
       const a = from + (to - from) * (1.5 * x - 0.5 * x * x * x);
       if (x < 1) {
@@ -1020,6 +1017,18 @@ function renderCard(card, list) {
     badges.push(h("span", { class: "badge" },
       icon("clip", 13), String(card.attachments.length)));
   }
+  let clDone = 0, clTotal = 0;
+  for (const cl of (card.checklists || [])) {
+    for (const it of cl.items) {
+      clTotal++;
+      if (it.done) clDone++;
+    }
+  }
+  if (clTotal) {
+    badges.push(h("span", {
+      class: "badge cl-badge" + (clDone === clTotal ? " cl-complete" : "") },
+      icon("check", 13), clDone + "/" + clTotal));
+  }
 
   let descEl = null;
   if (card.description) {
@@ -1217,6 +1226,11 @@ function openCard(id) {
   state.openCardId = id;
   state.editingDesc = false;
   state.editingTitle = false;
+  clCreating = false;
+  clEditTitle = null;
+  clEditItem = null;
+  clRefocusAdd = null;
+  editTagIdx = null;
   modalOpenedAt = Date.now();
   renderModal();
   if (window.OrbitPlugin) {
@@ -1310,6 +1324,7 @@ function renderModal() {
     })(),
     tagSection(card),
     descSection(card),
+    checklistSection(card),
     attachmentSection(card),
     h("div", { class: "modal-foot" },
       h("button", { class: "btn btn-ghost delete-card", onclick: deleteOpenCard },
@@ -1353,6 +1368,7 @@ function colorSection(card) {
 }
 
 let refocusTagInput = false;
+let editTagIdx = null;
 
 function boardTags() {
   const seen = new Map();
@@ -1425,10 +1441,46 @@ function tagSection(card) {
     refocusTagInput = false;
     setTimeout(() => input.focus(), 0);
   }
-  return h("div", { class: "tag-row" },
-    tags.map((t) => h("span", { class: "tag-chip" }, inlineEl("span", {}, t),
+  function tagChip(t, i) {
+    if (editTagIdx === i) {
+      const width = (s) => Math.max(4, s.length + 2) + "ch";
+      const edit = h("input", { class: "tag-edit-input", value: t,
+        style: { width: width(t) },
+        oninput: (e) => { e.target.style.width = width(e.target.value); },
+        onkeydown: (e) => {
+          if (e.key === "Enter") e.target.blur();
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            editTagIdx = null;
+            renderModal();
+          }
+        },
+        onblur: (e) => {
+          const v = e.target.value.trim().replace(/^#/, "").slice(0, 32);
+          editTagIdx = null;
+          if (!v || v === t) { renderModal(); return; }
+          const next = [...tags];
+          next[i] = v;
+          const seen = new Set();
+          saveTags(next.filter((x) => {
+            const k = x.toLowerCase();
+            if (seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          }));
+        } });
+      setTimeout(() => focusEnd(edit), 0);
+      return edit;
+    }
+    return h("span", { class: "tag-chip" },
+      inlineEl("span", { class: "tag-text",
+        onclick: () => { editTagIdx = i; renderModal(); } }, t),
       h("button", { class: "tag-x",
-        onclick: () => saveTags(tags.filter((x) => x !== t)) }, icon("x", 11)))),
+        onclick: () => saveTags(tags.filter((x) => x !== t)) }, icon("x", 11)));
+  }
+
+  return h("div", { class: "tag-row" },
+    tags.map(tagChip),
     h("div", { class: "tag-input-wrap" }, input, suggest));
 }
 
@@ -1489,6 +1541,367 @@ function descSection(card) {
   }
   return section;
 }
+
+let clCreating = false;
+let clEditTitle = null;
+let clEditItem = null;
+let clRefocusAdd = null;
+let clDrag = null;
+let clItemDrag = null;
+const clPh = h("div", { class: "cl-placeholder" });
+const clItemPh = h("div", { class: "cl-item-placeholder" });
+
+function checklistSection(card) {
+  const checklists = card.checklists || [];
+  const section = h("div", { class: "modal-section cl-section" },
+    h("h3", {}, "Checklists"));
+  if (!clCreating) {
+    section.append(h("div", { class: "desc-preview empty cl-add-checklist",
+      onclick: () => {
+        clCreating = true;
+        renderModal();
+      } }, "Add a checklist…"));
+  }
+  if (checklists.length || clCreating) {
+    section.append(h("div", { class: "cl-wrap",
+      ondragover: clWrapDragOver,
+      ondrop: (e) => clWrapDrop(e, card) },
+      clCreating ? clNamingBlock(card) : null,
+      checklists.map((cl) => clBlock(card, cl))));
+  }
+  return section;
+}
+
+function clNamingBlock(card) {
+  let block;
+  const cancel = () => {
+    clCreating = false;
+    renderModal();
+  };
+  const input = h("input", { class: "cl-title-input",
+    placeholder: "Checklist name…",
+    onkeydown: (e) => {
+      if (e.key === "Enter") e.target.blur();
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        e.target.value = "";
+        cancel();
+      }
+    },
+    onblur: (e) => {
+      const v = e.target.value.trim();
+      const toItems = !!(e.relatedTarget && block
+        && block.contains(e.relatedTarget)
+        && e.relatedTarget.classList.contains("cl-add"));
+      clCreating = false;
+      if (!v) {
+        renderModal();
+        return;
+      }
+      clCreateChecklist(card, v, toItems);
+    } });
+  setTimeout(() => input.focus(), 0);
+  block = h("div", { class: "cl-block cl-naming" },
+    h("div", { class: "cl-head" },
+      input,
+      h("button", { class: "icon-btn danger", title: "Cancel",
+        onmousedown: (e) => e.preventDefault(),
+        onclick: () => { input.value = ""; cancel(); } },
+        icon("trash", 14))),
+    h("div", { class: "cl-bar" },
+      h("div", { class: "cl-bar-fill", style: { width: "0%" } })),
+    h("input", { class: "cl-add", placeholder: "Add an item…" }));
+  return block;
+}
+
+async function clCreateChecklist(card, title, toItems) {
+  let res;
+  try { res = await pyapi("add_checklist", card.id, title); }
+  catch { renderModal(); return; }
+  card.checklists = [res.checklist, ...(card.checklists || [])];
+  if (toItems) clRefocusAdd = res.checklist.id;
+  commitLocal();
+  render();
+  renderModal();
+}
+
+function clBlock(card, cl) {
+  const total = cl.items.length;
+  const done = cl.items.filter((i) => i.done).length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+
+  let titleEl;
+  if (clEditTitle === cl.id) {
+    titleEl = h("input", { class: "cl-title-input", value: cl.title,
+      onkeydown: (e) => {
+        if (e.key === "Enter") e.target.blur();
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          clEditTitle = null;
+          renderModal();
+        }
+      },
+      onblur: (e) => {
+        const v = e.target.value.trim();
+        clEditTitle = null;
+        if (v && v !== cl.title) {
+          cl.title = v;
+          pyapi("rename_checklist", cl.id, v).catch(refreshBoard);
+          commitLocal();
+        }
+        renderModal();
+      } });
+    setTimeout(() => focusEnd(titleEl), 0);
+  } else {
+    titleEl = inlineEl("span", { class: "cl-title",
+      onclick: () => {
+        clEditTitle = cl.id;
+        renderModal();
+      } }, cl.title);
+  }
+
+  const addInput = h("input", { class: "cl-add", placeholder: "Add an item…",
+    onkeydown: (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        e.target.value = "";
+        e.target.blur();
+        return;
+      }
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const v = e.target.value.trim();
+      if (!v) return;
+      e.target.value = "";
+      clAddItem(card, cl, v);
+    },
+    onblur: (e) => {
+      const v = e.target.value.trim();
+      if (!v) return;
+      e.target.value = "";
+      clAddItem(card, cl, v);
+    } });
+  if (clRefocusAdd === cl.id) {
+    clRefocusAdd = null;
+    setTimeout(() => addInput.focus(), 0);
+  }
+
+  const canDrag = clEditTitle !== cl.id && (card.checklists || []).length > 1;
+  return h("div", { class: "cl-block", dataset: { clid: cl.id },
+    ondragover: clBlockDragOver,
+    ondrop: (e) => clBlockDrop(e, card, cl) },
+    h("div", { class: "cl-head", draggable: canDrag,
+      ondragstart: (e) => clDragStart(e, cl.id),
+      ondragend: clCleanupDrag },
+      titleEl,
+      h("span", { class: "cl-count" }, done + "/" + total),
+      h("button", { class: "icon-btn danger", title: "Delete checklist",
+        onclick: () => clDeleteChecklist(card, cl) },
+        icon("trash", 14))),
+    h("div", { class: "cl-bar" },
+      h("div", { class: "cl-bar-fill", style: { width: pct + "%" } })),
+    h("div", { class: "cl-items" },
+      cl.items.map((it) => clItemRow(card, cl, it))),
+    addInput);
+}
+
+async function clAddItem(card, cl, text) {
+  let res;
+  try { res = await pyapi("add_checklist_item", cl.id, text); }
+  catch { return; }
+  cl.items.push(res.item);
+  clRefocusAdd = cl.id;
+  commitLocal();
+  render();
+  renderModal();
+}
+
+async function clDeleteChecklist(card, cl) {
+  const ok = await confirmDialog(deleteMsg(cl.title));
+  if (!ok) return;
+  card.checklists = (card.checklists || []).filter((c) => c !== cl);
+  pyapi("delete_checklist", cl.id).catch(refreshBoard);
+  commitLocal();
+  render();
+  renderModal();
+}
+
+function clItemRow(card, cl, it) {
+  let textEl;
+  if (clEditItem === it.id) {
+    textEl = h("input", { class: "cl-item-input", value: it.text,
+      onkeydown: (e) => {
+        if (e.key === "Enter") e.target.blur();
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          clEditItem = null;
+          renderModal();
+        }
+      },
+      onblur: (e) => {
+        const v = e.target.value.trim();
+        clEditItem = null;
+        if (v && v !== it.text) {
+          it.text = v;
+          pyapi("edit_checklist_item", it.id, v).catch(refreshBoard);
+          commitLocal();
+        }
+        renderModal();
+      } });
+    setTimeout(() => focusEnd(textEl), 0);
+  } else {
+    textEl = inlineEl("span", { class: "cl-item-text",
+      onclick: () => {
+        clEditItem = it.id;
+        renderModal();
+      } }, it.text);
+  }
+
+  const row = h("div", { class: "cl-item" + (it.done ? " done" : ""),
+    draggable: clEditItem !== it.id,
+    ondragstart: (e) => clItemDragStart(e, cl.id, it.id),
+    ondragend: clItemCleanupDrag },
+    h("input", { type: "checkbox", class: "cl-check", checked: !!it.done,
+      onchange: (e) => clToggleItem(card, cl, it, e.target.checked, row) }),
+    textEl,
+    h("button", { class: "icon-btn danger cl-item-del", title: "Delete item",
+      onclick: () => {
+        cl.items = cl.items.filter((x) => x !== it);
+        pyapi("delete_checklist_item", it.id).catch(refreshBoard);
+        commitLocal();
+        render();
+        renderModal();
+      } }, icon("x", 12)));
+  return row;
+}
+
+function clToggleItem(card, cl, it, val, row) {
+  it.done = val;
+  row.classList.toggle("done", val);
+  const block = row.closest(".cl-block");
+  if (block) {
+    const total = cl.items.length;
+    const done = cl.items.filter((i) => i.done).length;
+    const count = block.querySelector(".cl-count");
+    if (count) count.textContent = done + "/" + total;
+    const fill = block.querySelector(".cl-bar-fill");
+    if (fill) {
+      fill.style.width = (total ? Math.round((done / total) * 100) : 0) + "%";
+    }
+  }
+  pyapi("toggle_checklist_item", it.id, val).catch(refreshBoard);
+  commitLocal();
+  render();
+}
+
+function clDragStart(e, id) {
+  clDrag = id;
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", "checklist:" + id);
+  const block = e.currentTarget.closest(".cl-block");
+  requestAnimationFrame(() => block.classList.add("drag-src"));
+  e.stopPropagation();
+}
+
+function clCleanupDrag() {
+  clDrag = null;
+  clPh.remove();
+  document.querySelectorAll(".cl-block.drag-src").forEach((el) => {
+    el.classList.remove("drag-src");
+  });
+}
+
+function clWrapDragOver(e) {
+  if (clDrag == null) return;
+  e.preventDefault();
+  e.stopPropagation();
+  e.dataTransfer.dropEffect = "move";
+  const wrap = e.currentTarget;
+  const after = [...wrap.querySelectorAll(
+    ":scope > .cl-block:not(.drag-src):not(.cl-naming)")]
+    .find((el) => e.clientY < el.getBoundingClientRect().top + el.offsetHeight / 2);
+  placePh(clPh, wrap, after || null);
+}
+
+function clWrapDrop(e, card) {
+  if (clDrag == null) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const wrap = e.currentTarget;
+  let index = 0;
+  for (const el of wrap.children) {
+    if (el === clPh) break;
+    if (el.classList.contains("cl-block") && !el.classList.contains("drag-src")
+        && !el.classList.contains("cl-naming")) index++;
+  }
+  const id = clDrag;
+  clCleanupDrag();
+  const checklists = card.checklists || [];
+  const from = checklists.findIndex((c) => c.id === id);
+  if (from === -1) return;
+  const [moved] = checklists.splice(from, 1);
+  checklists.splice(Math.min(index, checklists.length), 0, moved);
+  pyapi("move_checklist", id, index).catch(refreshBoard);
+  commitLocal();
+  renderModal();
+}
+
+function clItemDragStart(e, clId, itemId) {
+  clItemDrag = { clId, itemId };
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", "cl-item:" + itemId);
+  const row = e.currentTarget;
+  requestAnimationFrame(() => row.classList.add("dragging"));
+  e.stopPropagation();
+}
+
+function clItemCleanupDrag() {
+  clItemDrag = null;
+  clItemPh.remove();
+  document.querySelectorAll(".cl-item.dragging").forEach((el) => {
+    el.classList.remove("dragging");
+  });
+}
+
+function clBlockDragOver(e) {
+  if (!clItemDrag) return;
+  e.preventDefault();
+  e.stopPropagation();
+  e.dataTransfer.dropEffect = "move";
+  const items = e.currentTarget.querySelector(":scope > .cl-items");
+  if (!items) return;
+  const after = [...items.querySelectorAll(":scope > .cl-item:not(.dragging)")]
+    .find((el) => e.clientY < el.getBoundingClientRect().top + el.offsetHeight / 2);
+  placePh(clItemPh, items, after || null);
+}
+
+function clBlockDrop(e, card, toCl) {
+  if (!clItemDrag) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const items = e.currentTarget.querySelector(":scope > .cl-items");
+  let index = 0;
+  if (items) {
+    for (const el of items.children) {
+      if (el === clItemPh) break;
+      if (el.classList.contains("cl-item")
+          && !el.classList.contains("dragging")) index++;
+    }
+  }
+  const { clId, itemId } = clItemDrag;
+  clItemCleanupDrag();
+  const from = (card.checklists || []).find((c) => c.id === clId);
+  if (!from) return;
+  const i = from.items.findIndex((x) => x.id === itemId);
+  if (i === -1) return;
+  const [moved] = from.items.splice(i, 1);
+  toCl.items.splice(Math.min(index, toCl.items.length), 0, moved);
+  pyapi("move_checklist_item", itemId, toCl.id, index).catch(refreshBoard);
+  commitLocal();
+  render();
+  renderModal();
+}
+
 
 function attachmentSection(card) {
   const section = h("div", { class: "modal-section" },
@@ -1733,6 +2146,6 @@ document.addEventListener("DOMContentLoaded", () => start());
 setTimeout(() => {
   if (!started && !window.pywebview) {
     qs("#board-root").innerHTML =
-      '<div class="empty-state"><p>Backend not available — launch Orbit with <b>python main.py</b>.</p></div>';
+      '<div class="empty-state"><p>Backend not available — launch Orbit with <b>python main.pyw</b>.</p></div>';
   }
 }, 1500);

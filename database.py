@@ -1,25 +1,3 @@
-"""JSON-file storage for Orbit — one self-contained folder per board.
-
-Every board lives in its own folder, data/boards/<board name>/:
-
-    board.json      the board document (below)
-    attachments/    the board's files, one folder per card named after it
-
-    { "id": 1, "name": "...", "description": "", "pinned": 0,
-      "pinned_at": null, "created_at": "...",
-      "lists": [
-        { "id": 2, "name": "...",
-          "cards": [
-            { "id": 3, "title": "...", "description": "", "color": "",
-              "tags": [], "cover_id": null, "created_at": "...",
-              "attachments": [
-                { "id": 4, "name": "pic.png", "file": "Card title/….png",
-                  "kind": "image", "size": 123, "created_at": "..." } ] } ] } ] }
-
-Writes are atomic (temp file + replace) so a crash can never corrupt a save.
-IDs are unique across all boards; the next free ID is computed at load time.
-"""
-
 import json
 import os
 import re
@@ -36,7 +14,6 @@ def now():
 
 
 def strip_markup(text):
-    """Remove Orbit's inline formatting syntax (for filenames/titles)."""
     s = str(text)
     s = re.sub(r"\*\*(.+?)\*\*", r"\1", s)
     s = re.sub(r"__(.+?)__", r"\1", s)
@@ -48,14 +25,12 @@ def strip_markup(text):
 
 
 def _safe_name(raw):
-    """Reduce a board/card name to something a folder can be called."""
     name = strip_markup(raw)
     name = re.sub(r'[\\/:*?"<>|]', "", name)
     return re.sub(r"\s+", " ", name).strip(" .")[:60].strip(" .")
 
 
 def board_dirname(board, taken):
-    """Filesystem-safe folder name derived from the board's name."""
     name = _safe_name(board["name"])
     if not name or name.lower() in RESERVED_NAMES:
         name = f"board_{board['id']}"
@@ -65,7 +40,6 @@ def board_dirname(board, taken):
 
 
 def card_dirname(card, taken):
-    """Filesystem-safe folder name derived from the card's title."""
     name = _safe_name(card["title"])
     if not name or name.lower() in RESERVED_NAMES:
         name = f"card_{card['id']}"
@@ -75,7 +49,6 @@ def card_dirname(card, taken):
 
 
 def card_folder(card):
-    """The folder the card's files currently live in (None if no attachments)."""
     if card["attachments"]:
         return card["attachments"][0]["file"].split("/", 1)[0]
     return None
@@ -96,11 +69,14 @@ def _max_id(board):
             m = max(m, c["id"])
             for a in c["attachments"]:
                 m = max(m, a["id"])
+            for cl in c.get("checklists", []):
+                m = max(m, cl["id"])
+                for it in cl.get("items", []):
+                    m = max(m, it["id"])
     return m
 
 
 class Store:
-    """All boards in memory, guarded by a lock; each board saves to its folder."""
 
     def __init__(self, boards_dir):
         self.dir = boards_dir
@@ -126,16 +102,12 @@ class Store:
         return i
 
     def board_dir(self, board):
-        """The board's own folder (holds board.json and attachments/)."""
         return os.path.join(self.dir, self._dirs[board["id"]])
 
     def attach_dir(self, board):
-        """Where this board's attachment files live."""
         return os.path.join(self.board_dir(board), "attachments")
 
     def save_board(self, board):
-        """Write the board into <board name>/board.json, renaming its folder
-        if the board was renamed."""
         taken = {d.lower() for bid, d in self._dirs.items()
                  if bid != board["id"]}
         dirname = board_dirname(board, taken)
@@ -152,7 +124,6 @@ class Store:
         self._dirs[board["id"]] = dirname
 
     def remove_board(self, board):
-        """Drop the board and delete its folder, attachments included."""
         self.boards.remove(board)
         dirname = self._dirs.pop(board["id"], None)
         if dirname:
@@ -187,4 +158,23 @@ class Store:
                     for a in c["attachments"]:
                         if a["id"] == attachment_id:
                             return b, l, c, a
+        return None, None, None, None
+
+    def find_checklist(self, checklist_id):
+        for b in self.boards:
+            for l in b["lists"]:
+                for c in l["cards"]:
+                    for cl in c.get("checklists", []):
+                        if cl["id"] == checklist_id:
+                            return b, c, cl
+        return None, None, None
+
+    def find_checklist_item(self, item_id):
+        for b in self.boards:
+            for l in b["lists"]:
+                for c in l["cards"]:
+                    for cl in c.get("checklists", []):
+                        for it in cl["items"]:
+                            if it["id"] == item_id:
+                                return b, c, cl, it
         return None, None, None, None

@@ -1,11 +1,3 @@
-"""Orbit Plugin System — discovers, validates, and manages plugins.
-
-Plugins live in data/plugins/<plugin-id>/ each with:
-    manifest.json   — metadata & permissions
-    main.py         — an OrbitPlugin subclass
-    frontend.js     — (optional) loaded by the frontend plugin host
-"""
-
 import importlib.util
 import json
 import os
@@ -18,7 +10,6 @@ from .api import OrbitPlugin
 
 
 def discover(plugins_dir):
-    """Return list of (manifest_dict, folder_path) tuples for valid plugins."""
     if not os.path.isdir(plugins_dir):
         return []
     results = []
@@ -43,15 +34,6 @@ def discover(plugins_dir):
 
 
 class PluginManager:
-    """Manages plugin lifecycle: load, enable, disable, unload.
-
-    Usage in Api.__init__:
-        self.plugins = PluginManager(
-            plugins_dir=os.path.join(self.data_dir, "plugins"),
-            storage_base=os.path.join(self.data_dir, "plugins"),
-        )
-        self.plugins.load_all()
-    """
 
     def __init__(self, plugins_dir, storage_base):
         self.plugins_dir = plugins_dir
@@ -64,9 +46,6 @@ class PluginManager:
 
 
     def load_all(self, enabled_ids=None, disabled_ids=None):
-        """Discover and load all valid plugins. enabled_ids acts as a
-        whitelist when given; disabled_ids as a blacklist (persisted
-        per-plugin toggle state)."""
         for manifest, folder in discover(self.plugins_dir):
             pid = manifest["id"]
             if enabled_ids is not None and pid not in enabled_ids:
@@ -80,7 +59,6 @@ class PluginManager:
                 print(f"[plugins] Failed to load '{pid}'")
 
     def load_one(self, plugin_id):
-        """Load a single discovered plugin by id. True if it ends up loaded."""
         if plugin_id in self._instances:
             return True
         for manifest, folder in discover(self.plugins_dir):
@@ -152,7 +130,6 @@ class PluginManager:
 
 
     def unload(self, plugin_id):
-        """Unload a single plugin and remove its hooks."""
         instance = self._instances.pop(plugin_id, None)
         if instance:
             self._enabled.discard(plugin_id)
@@ -164,19 +141,15 @@ class PluginManager:
         self._modules.pop(plugin_id, None)
 
     def unload_all(self):
-        """Unload every plugin (called on app exit)."""
         for pid in list(self._instances):
             self.unload(pid)
 
 
     @property
     def loaded(self):
-        """Dict of {plugin_id: OrbitPlugin instance} for enabled plugins."""
         return dict(self._instances)
 
     def describe_all(self):
-        """Every discovered plugin (enabled or not) with its load state —
-        this is what the plugins dialog lists."""
         result = []
         seen = set()
         for manifest, folder in discover(self.plugins_dir):
@@ -196,7 +169,6 @@ class PluginManager:
         return result
 
     def folder_of(self, plugin_id):
-        """The plugin's folder path, whether or not it is loaded."""
         inst = self._instances.get(plugin_id)
         if inst is not None:
             return inst.dir
@@ -206,8 +178,6 @@ class PluginManager:
         return os.path.join(self.plugins_dir, plugin_id)
 
     def get_frontend_plugins(self):
-        """Return a list of {id, name, has_frontend} for the frontend host.
-        has_frontend is True if the plugin folder contains a frontend.js."""
         result = []
         for pid, inst in self._instances.items():
             folder = self._instances[pid].dir if hasattr(inst, 'dir') else None
@@ -231,8 +201,6 @@ class PluginManager:
     }
 
     def _instance_bridge(self, pid, inst):
-        """Bridge entries {plugin_<pid>_<method>: callable} for one instance.
-        Methods starting with '_' or in BRIDGE_SKIP are excluded."""
         entries = {}
         for attr_name in dir(inst):
             if attr_name.startswith("_") or attr_name in self.BRIDGE_SKIP:
@@ -243,30 +211,21 @@ class PluginManager:
         return entries
 
     def get_api_bridge(self):
-        """Return a dict of {method_name: callable} for Api to attach.
-        Every public method on each plugin instance becomes callable
-        as window.pywebview.api.plugin_<id>_<method>(...)."""
         bridge = {}
         for pid, inst in self._instances.items():
             bridge.update(self._instance_bridge(pid, inst))
         return bridge
 
     def bridge_names(self, plugin_id):
-        """Exact bridge attribute names for one loaded plugin.
-        Empty if the plugin is not loaded."""
         return list(self.bridge_for(plugin_id))
 
     def bridge_for(self, plugin_id):
-        """Bridge entries {name: callable} for one loaded plugin.
-        Empty if the plugin is not loaded."""
         inst = self._instances.get(plugin_id)
         if inst is None:
             return {}
         return self._instance_bridge(plugin_id, inst)
 
     def get_plugin_frontend_scripts(self):
-        """Return a list of {id, name, code} for enabled plugins
-        with frontend.js files. The frontend host inlines these scripts."""
         scripts = []
         for pid in self._instances:
             folder = self._instances[pid].dir if hasattr(self._instances[pid], 'dir') else os.path.join(self.plugins_dir, pid)

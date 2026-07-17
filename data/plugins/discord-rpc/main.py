@@ -1,19 +1,3 @@
-"""Discord Rich Presence for Orbit.
-
-Talks to the Discord desktop app directly over its local IPC pipe — pure
-standard library, no pip dependencies. The frontend (frontend.js) pushes UI
-context (board, card, editing state) here via set_context(); a background
-worker keeps the presence updated and survives Discord restarts.
-
-Concurrency model: the worker thread OWNS all pipe I/O. Bridge methods
-(called from pywebview threads) only mutate config/context and set the wake
-event — they never touch the connection, so they can never block on it.
-Reads are deadline-bounded and abortable (PeekNamedPipe polling on Windows,
-socket timeouts on POSIX), so the worker always winds down promptly.
-
-Requires a Discord application ID (see README.md) stored as "client_id".
-"""
-
 import json
 import os
 import socket
@@ -33,11 +17,10 @@ OP_PONG = 4
 
 
 class ActivityRejected(Exception):
-    """Discord accepted the connection but rejected the payload (evt: ERROR)."""
+    pass
 
 
 def _clip(text, limit=128):
-    """Discord rejects fields over 128 chars or under 2."""
     s = str(text)
     if len(s) < 2:
         return None
@@ -49,12 +32,6 @@ def _plural(n, word):
 
 
 class DiscordIPC:
-    """Minimal client for Discord's local RPC (discord-ipc pipe/socket).
-
-    All methods must be called from a single thread (the plugin worker).
-    Reads respect `timeout` and the `should_abort` callback, so a hung or
-    silent pipe can never block the caller indefinitely.
-    """
 
     def __init__(self, client_id, timeout=8.0, should_abort=None):
         self.client_id = str(client_id)
@@ -119,12 +96,6 @@ class DiscordIPC:
             self._pipe.write(data)
 
     def _read_exact(self, n):
-        """Read exactly n bytes, bounded by self.timeout and self._abort.
-
-        On Windows a named-pipe FileIO.read blocks with no timeout and
-        cannot be interrupted by close() from another thread, so we poll
-        PeekNamedPipe and only ever read bytes that are already available.
-        """
         end = time.time() + self.timeout
         buf = b""
         if sys.platform == "win32":
@@ -184,7 +155,6 @@ class DiscordIPC:
         raise ConnectionError("No response from Discord")
 
     def set_activity(self, activity):
-        """activity=None clears the presence."""
         return self._roundtrip({
             "cmd": "SET_ACTIVITY",
             "args": {"pid": os.getpid(), "activity": activity},
@@ -192,8 +162,6 @@ class DiscordIPC:
         })
 
     def clear_activity_nowait(self):
-        """Best-effort presence clear without waiting for the reply — used
-        on the way out, where a response may never come."""
         self._send(OP_FRAME, {
             "cmd": "SET_ACTIVITY",
             "args": {"pid": os.getpid(), "activity": None},
@@ -264,8 +232,6 @@ class DiscordRPCPlugin(OrbitPlugin):
 
 
     def set_context(self, ctx):
-        """Merge a context snapshot from the frontend:
-        {view, board_name, card_title, editing, lists, cards, boards}"""
         if not isinstance(ctx, dict):
             return {"error": "context must be an object"}
         self._merge_ctx(ctx, from_frontend=True)
@@ -309,7 +275,6 @@ class DiscordRPCPlugin(OrbitPlugin):
 
 
     def _loop(self):
-        """Sole owner of the IPC connection — nothing else touches it."""
         ipc = None
         connected_id = None
         last_sent = None

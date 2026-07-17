@@ -1,16 +1,3 @@
-"""Orbit — a lightweight, local-first Trello-style board app.
-
-Run:    python main.pyw           (add --debug for devtools)
-Build:  pyinstaller --onefile --windowed --name Orbit --icon icon.ico
-            --add-data "static;static" --add-data "font;font" main.pyw
-
-All backend functionality is exposed to the frontend through the Api class,
-attached to the pywebview window via js_api. There is no HTTP server and no
-web framework; every board lives in its own folder under data/boards/ — a
-human-readable board.json plus that board's attachments/ — created next to
-main.pyw (or the built .exe). The font/ folder ships inside the exe.
-"""
-
 import base64
 import functools
 import json
@@ -67,14 +54,12 @@ except AttributeError:
 
 
 def app_dir():
-    """Directory the app lives in: next to the .exe when frozen, else this file."""
     if getattr(sys, "frozen", False):
         return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
 
 
 def resource_path(rel):
-    """Bundled read-only resources (static/, font/) — inside _MEIPASS when frozen."""
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, rel)
 
@@ -100,14 +85,12 @@ def guess_mime(filename):
 
 
 def plain_name(name):
-    """Formatting-free sort key for board names."""
     s = re.sub(r"\[(?:red|orange|yellow|green|teal|blue|purple|pink)\s*:\s*",
                "", str(name), flags=re.I)
     return re.sub(r"[*_~\]]", "", s).lower()
 
 
 def api_method(fn):
-    """Convert exceptions into {'error': ...} so the frontend can handle them."""
 
     @functools.wraps(fn)
     def wrapper(self, *args, **kwargs):
@@ -121,8 +104,6 @@ def api_method(fn):
 
 
 def plugin_api_method(fn):
-    """api_method for plugin bridge callables — these are already bound to
-    their plugin instance, so no 'self' parameter is involved."""
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
@@ -136,7 +117,6 @@ def plugin_api_method(fn):
 
 
 class Api:
-    """Everything the frontend can do, reachable as window.pywebview.api.*"""
 
     def __init__(self, base_dir=None):
         self.base_dir = base_dir or app_dir()
@@ -160,7 +140,6 @@ class Api:
 
 
     def _load_disabled(self):
-        """Persisted set of plugin ids the user has toggled off."""
         try:
             with open(self._plugins_config_path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
@@ -174,7 +153,6 @@ class Api:
 
     @api_method
     def set_plugin_enabled(self, plugin_id, enabled):
-        """Toggle a plugin on/off at runtime; the choice persists."""
         disabled = self._load_disabled()
         if enabled:
             if plugin_id not in self.plugins.loaded:
@@ -196,10 +174,6 @@ class Api:
 
     @api_method
     def call_plugin_method(self, plugin_id, method, args=None):
-        """Fixed dispatcher for plugin bridge calls. It exists at page load,
-        so plugins enabled at runtime are callable even though pywebview
-        only generates JS stubs once — and lookups are per-plugin, so flat
-        plugin_<id>_<method> name ambiguity cannot misroute a call."""
         fn = self.plugins.bridge_for(plugin_id).get(
             f"plugin_{plugin_id}_{method}")
         if fn is None:
@@ -208,18 +182,14 @@ class Api:
 
     @api_method
     def get_plugin_frontend_scripts(self):
-        """Return list of {id, name, code} for enabled plugins.
-        The frontend plugin host calls this to inject plugin JS."""
         return self.plugins.get_plugin_frontend_scripts()
 
     @api_method
     def get_plugin_info(self):
-        """Metadata for every installed plugin, enabled or not."""
         return self.plugins.describe_all()
 
     @api_method
     def open_plugins_folder(self):
-        """Open data/plugins in the system file browser."""
         path = self.plugins.plugins_dir
         os.makedirs(path, exist_ok=True)
         if sys.platform == "win32":
@@ -232,7 +202,6 @@ class Api:
 
     @api_method
     def delete_plugin(self, plugin_id):
-        """Unload a plugin, detach its API bridge, and delete its folder."""
         inst = self.plugins.loaded.get(plugin_id)
         folder = self.plugins.folder_of(plugin_id)
         if inst is None and not os.path.isdir(folder):
@@ -245,8 +214,6 @@ class Api:
         base = os.path.normcase(os.path.realpath(self.plugins.plugins_dir))
 
         def remove_dir(path):
-            """rmtree only real directories inside data/plugins; a junction or
-            symlink is unlinked without touching what it points at."""
             if not os.path.isdir(path):
                 return
             parent_real = os.path.realpath(os.path.dirname(path))
@@ -356,7 +323,6 @@ class Api:
 
     @api_method
     def get_board(self, board_id):
-        """Full nested snapshot: board, lists, cards, attachment metadata."""
         with self.store.lock:
             board = self.store.board(board_id)
             if board is None:
@@ -375,7 +341,6 @@ class Api:
 
     @api_method
     def restore_board(self, board_id, doc):
-        """Replace a board's content with a snapshot (frontend undo/redo)."""
         if not isinstance(doc, dict) or doc.get("id") != board_id \
                 or not isinstance(doc.get("lists"), list):
             return {"error": "Invalid snapshot"}
@@ -477,6 +442,7 @@ class Api:
                 "tags": [],
                 "cover_id": None,
                 "created_at": database.now(),
+                "checklists": [],
                 "attachments": [],
             }
             lst["cards"].append(card)
@@ -575,8 +541,121 @@ class Api:
 
 
     @api_method
+    def add_checklist(self, card_id, title):
+        title = (title or "").strip()[:120] or "Checklist"
+        with self.store.lock:
+            board, _, card = self.store.find_card(card_id)
+            if card is None:
+                return {"error": "Card not found"}
+            checklist = {"id": self.store.new_id(),
+                         "title": title, "items": []}
+            card.setdefault("checklists", []).insert(0, checklist)
+            self.store.save_board(board)
+            return {"checklist": checklist}
+
+    @api_method
+    def rename_checklist(self, checklist_id, title):
+        title = (title or "").strip()[:120]
+        if not title:
+            return {"error": "Checklist title cannot be empty"}
+        with self.store.lock:
+            board, _, checklist = self.store.find_checklist(checklist_id)
+            if checklist is None:
+                return {"error": "Checklist not found"}
+            checklist["title"] = title
+            self.store.save_board(board)
+        return {"ok": True}
+
+    @api_method
+    def move_checklist(self, checklist_id, new_index):
+        with self.store.lock:
+            board, card, checklist = self.store.find_checklist(checklist_id)
+            if checklist is None:
+                return {"error": "Checklist not found"}
+            checklists = card["checklists"]
+            checklists.remove(checklist)
+            new_index = max(0, min(int(new_index), len(checklists)))
+            checklists.insert(new_index, checklist)
+            self.store.save_board(board)
+        return {"ok": True}
+
+    @api_method
+    def delete_checklist(self, checklist_id):
+        with self.store.lock:
+            board, card, checklist = self.store.find_checklist(checklist_id)
+            if checklist is None:
+                return {"error": "Checklist not found"}
+            card["checklists"].remove(checklist)
+            self.store.save_board(board)
+        return {"ok": True}
+
+    @api_method
+    def add_checklist_item(self, checklist_id, text):
+        text = (text or "").strip()[:500]
+        if not text:
+            return {"error": "Item text cannot be empty"}
+        with self.store.lock:
+            board, _, checklist = self.store.find_checklist(checklist_id)
+            if checklist is None:
+                return {"error": "Checklist not found"}
+            item = {"id": self.store.new_id(), "text": text, "done": False}
+            checklist["items"].append(item)
+            self.store.save_board(board)
+            return {"item": item}
+
+    @api_method
+    def toggle_checklist_item(self, item_id, done):
+        with self.store.lock:
+            board, _, _, item = self.store.find_checklist_item(item_id)
+            if item is None:
+                return {"error": "Item not found"}
+            item["done"] = bool(done)
+            self.store.save_board(board)
+        return {"ok": True}
+
+    @api_method
+    def edit_checklist_item(self, item_id, text):
+        text = (text or "").strip()[:500]
+        if not text:
+            return {"error": "Item text cannot be empty"}
+        with self.store.lock:
+            board, _, _, item = self.store.find_checklist_item(item_id)
+            if item is None:
+                return {"error": "Item not found"}
+            item["text"] = text
+            self.store.save_board(board)
+        return {"ok": True}
+
+    @api_method
+    def delete_checklist_item(self, item_id):
+        with self.store.lock:
+            board, _, checklist, item = self.store.find_checklist_item(item_id)
+            if item is None:
+                return {"error": "Item not found"}
+            checklist["items"].remove(item)
+            self.store.save_board(board)
+        return {"ok": True}
+
+    @api_method
+    def move_checklist_item(self, item_id, to_checklist_id, new_index):
+        with self.store.lock:
+            board, card, source, item = self.store.find_checklist_item(item_id)
+            if item is None:
+                return {"error": "Item not found"}
+            _, target_card, target = self.store.find_checklist(to_checklist_id)
+            if target is None:
+                return {"error": "Checklist not found"}
+            if target_card is not card:
+                return {"error": "Items can only move within the same card"}
+            source["items"].remove(item)
+            new_index = max(0, min(int(new_index), len(target["items"])))
+            target["items"].insert(new_index, item)
+            self.store.save_board(board)
+        return {"ok": True}
+
+
+    @api_method
     def add_attachments_dialog(self, card_id):
-        """Open the native file picker and attach every selected file."""
         if not webview.windows:
             return {"error": "No application window"}
         paths = webview.windows[0].create_file_dialog(
@@ -594,7 +673,6 @@ class Api:
 
     @api_method
     def add_attachment_from_path(self, card_id, path):
-        """Attach a file dropped from the OS when its full path is known."""
         if not path or not os.path.isfile(path):
             return {"error": "File not found: %s" % path}
         return self._store_attachment(
@@ -603,7 +681,6 @@ class Api:
 
     @api_method
     def add_attachment_from_data(self, card_id, filename, data_b64):
-        """Fallback for drops where only file bytes are available (base64)."""
         if data_b64.startswith("data:"):
             data_b64 = data_b64.split(",", 1)[1]
         raw = base64.b64decode(data_b64)
@@ -616,7 +693,6 @@ class Api:
 
     @api_method
     def get_attachment_data(self, attachment_id):
-        """Return the file as a data URI for inline preview/playback."""
         att, path = self._find_attachment(attachment_id)
         size = os.path.getsize(path)
         if size > MAX_INLINE_BYTES:
@@ -631,7 +707,6 @@ class Api:
 
     @api_method
     def open_attachment(self, attachment_id):
-        """Open with the system default application."""
         _, path = self._find_attachment(attachment_id)
         if sys.platform == "win32":
             os.startfile(path)
@@ -643,7 +718,6 @@ class Api:
 
     @api_method
     def save_attachment_as(self, attachment_id):
-        """Copy the attachment to a user-chosen location (download)."""
         att, path = self._find_attachment(attachment_id)
         if not webview.windows:
             return {"error": "No application window"}
@@ -658,7 +732,6 @@ class Api:
 
     @api_method
     def rename_attachment(self, attachment_id, name):
-        """Change the display name; the original extension is preserved."""
         name = (name or "").strip()
         if not name:
             return {"error": "Name cannot be empty"}
@@ -689,7 +762,6 @@ class Api:
 
     @api_method
     def set_title(self, title):
-        """Update the native window title (e.g. 'Orbit - <board name>')."""
         if webview.windows:
             webview.windows[0].set_title(str(title)[:200])
         return {"ok": True}
@@ -697,7 +769,6 @@ class Api:
 
     @api_method
     def get_fonts(self):
-        """Bundled font files (font/), as data URIs the UI can inject."""
         fonts = []
         if not os.path.isdir(self.font_dir):
             return fonts
@@ -724,7 +795,6 @@ class Api:
 
 
     def _card_folders_taken(self, board, card):
-        """Folder names the board's other cards already use (lowercased)."""
         taken = set()
         for l in board["lists"]:
             for c in l["cards"]:
@@ -735,7 +805,6 @@ class Api:
         return taken
 
     def _sync_card_folder(self, board, card):
-        """Rename the card's attachment folder to match its current title."""
         old = database.card_folder(card)
         if old is None:
             return
@@ -755,7 +824,6 @@ class Api:
             att["file"] = f"{new}/" + att["file"].split("/", 1)[1]
 
     def _move_card_folder(self, board_a, board_b, card):
-        """A card's files live with its board — move them when the card moves."""
         folder = database.card_folder(card)
         if folder is None:
             return
@@ -776,9 +844,6 @@ class Api:
                 att["file"] = f"{new}/" + att["file"].split("/", 1)[1]
 
     def _reconcile_attachments(self, board):
-        """After a snapshot restore, attachment paths may predate a folder
-        rename; re-point them at the files' real location, then re-sync
-        folder names to the restored titles."""
         root = self.store.attach_dir(board)
         index = None
         for l in board["lists"]:
