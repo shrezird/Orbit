@@ -128,7 +128,6 @@ async function redoBoard() {
 let lastView = null;
 let viewEntering = false;
 let composerNew = false;
-let searchNew = false;
 let enterCardId = null;
 let enterListId = null;
 
@@ -226,6 +225,17 @@ function stripMarkup(text) {
   s = s.replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, "$1$2");
   s = s.replace(COLOR_TAG_RE, "$2");
   return s;
+}
+
+function inlineEl(tag, attrs, text) {
+  const el = h(tag, attrs);
+  el.innerHTML = renderInline(text);
+  return el;
+}
+
+function tagMatches(t, q) {
+  return !q || t.toLowerCase().includes(q) ||
+    stripMarkup(t).toLowerCase().includes(stripMarkup(q).toLowerCase());
 }
 
 function focusEnd(el) {
@@ -382,40 +392,82 @@ function renderTopbar() {
       descEl.innerHTML = "- " + renderInline(state.board.board.description);
       ctx.append(descEl);
     }
+    const right = h("div", { class: "topbar-right" });
+    const suggest = h("div", { class: "tag-suggest", hidden: true });
+    function updateSuggest() {
+      const q = input.value.trim().toLowerCase().replace(/^#/, "");
+      const opts = boardTags().filter((t) =>
+        t.toLowerCase() !== q && tagMatches(t, q)).slice(0, 50);
+      suggest.innerHTML = "";
+      for (const t of opts) {
+        suggest.append(inlineEl("button", { class: "tag-option",
+          onmousedown: (e) => { e.preventDefault(); pick(t); } }, t));
+      }
+      suggest.hidden = !opts.length;
+      wrap.classList.toggle("open", !suggest.hidden);
+    }
+    function pick(t) {
+      input.value = t;
+      state.cardSearch = t;
+      applyCardHighlights();
+      updateSuggest();
+      input.focus();
+    }
     const collapse = () => {
+      if (!state.searchOpen || wrap.classList.contains("closing")) return;
       state.searchOpen = false;
       state.cardSearch = "";
-      renderTopbar();
       applyCardHighlights();
+      wrap.classList.add("closing");
+      wrap.classList.remove("open");
+      searchBtn.classList.remove("on");
+      input.blur();
+      setTimeout(() => {
+        if (state.searchOpen || !wrap.isConnected) return;
+        wrap.classList.add("collapsed");
+        wrap.classList.remove("closing", "enter");
+        input.value = "";
+        suggest.hidden = true;
+      }, 150);
     };
-    const right = h("div", { class: "topbar-right" });
-    if (state.searchOpen) {
-      const input = h("input", {
-        class: "tag-search-input" + (searchNew ? " enter" : ""),
-        value: state.cardSearch,
-        placeholder: "Search tags…",
-        oninput: (e) => {
-          state.cardSearch = e.target.value;
-          applyCardHighlights();
-        },
-        onblur: (e) => { if (!e.target.value.trim()) collapse(); },
-        onkeydown: (e) => {
-          if (e.key === "Escape") { e.stopPropagation(); collapse(); }
-        } });
-      right.append(input);
-      if (searchNew) setTimeout(() => focusEnd(input), 0);
-    }
-    right.append(h("button", {
+    const input = h("input", {
+      class: "tag-search-input",
+      value: state.cardSearch,
+      placeholder: "Search tags…",
+      oninput: (e) => {
+        state.cardSearch = e.target.value;
+        applyCardHighlights();
+        updateSuggest();
+      },
+      onfocus: updateSuggest,
+      onblur: (e) => {
+        setTimeout(() => {
+          suggest.hidden = true;
+          wrap.classList.remove("open");
+        }, 150);
+        if (!e.target.value.trim()) collapse();
+      },
+      onkeydown: (e) => {
+        if (e.key === "Escape") { e.stopPropagation(); collapse(); }
+      } });
+    const searchBtn = h("button", {
       class: "icon-btn tag-search-btn" + (state.searchOpen ? " on" : ""),
       onclick: () => {
         if (state.searchOpen) {
           collapse();
-        } else {
+        } else if (!wrap.classList.contains("closing")) {
           state.searchOpen = true;
-          searchNew = true;
-          renderTopbar();
+          wrap.classList.remove("collapsed");
+          wrap.classList.add("enter");
+          searchBtn.classList.add("on");
+          input.value = state.cardSearch;
+          setTimeout(() => focusEnd(input), 0);
         }
-      } }, icon("tag", 16)));
+      } }, icon("tag", 16));
+    const wrap = h("div",
+      { class: "tag-search-wrap" + (state.searchOpen ? "" : " collapsed") },
+      input, searchBtn, suggest);
+    right.append(wrap);
     if (window.OrbitPlugin) {
       const pluginEls = window.OrbitPlugin.render("render:topbar", state);
       pluginEls.forEach((el) => {
@@ -424,7 +476,6 @@ function renderTopbar() {
     }
     ctx.append(right);
   }
-  searchNew = false;
 }
 
 let lastTitle = "";
@@ -444,7 +495,7 @@ function applyCardHighlights() {
   document.querySelectorAll("#lists .card").forEach((el) => {
     const card = findCard(Number(el.dataset.cardId));
     const tags = (card && card.tags) || [];
-    const match = !!q && tags.some((t) => t.toLowerCase().includes(q));
+    const match = !!q && tags.some((t) => tagMatches(t, q));
     el.classList.toggle("hl", match);
     el.classList.toggle("dim", !!q && !match);
   });
@@ -634,6 +685,49 @@ async function togglePlugin(p) {
   render();
 }
 
+// Spin by rotating a <g> inside the SVG canvas, not by transforming the
+// <svg> element: an element transform puts the icon on its own compositor
+// layer whose raster is snapped to whole device pixels, so whenever the
+// flex-centered dialog lands on a half pixel (or DPI scale is 125%/150%)
+// the icon orbits by ~a pixel instead of spinning in place.
+function spinRefreshIcon(svg) {
+  if (!svg) return null;
+  let g = svg.firstElementChild;
+  if (!g || g.tagName !== "g") {
+    g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    while (svg.firstChild) g.append(svg.firstChild);
+    svg.append(g);
+  }
+  const TURN_MS = 700;
+  let angle = 0;
+  let last = performance.now();
+  let raf = requestAnimationFrame(function spin(now) {
+    angle = (angle + (now - last) / TURN_MS * 360) % 360;
+    last = now;
+    g.setAttribute("transform", `rotate(${angle} 12 12)`);
+    raf = requestAnimationFrame(spin);
+  });
+  return () => new Promise((resolve) => {
+    cancelAnimationFrame(raf);
+    const from = angle;
+    const to = 360 * Math.ceil((from + 180) / 360);
+    const dur = (to - from) / 360 * TURN_MS * 1.5;
+    const t0 = performance.now();
+    requestAnimationFrame(function land(now) {
+      // 1.5x - 0.5x^3 starts at the spin's angular velocity, eases to rest.
+      const x = Math.min((now - t0) / dur, 1);
+      const a = from + (to - from) * (1.5 * x - 0.5 * x * x * x);
+      if (x < 1) {
+        g.setAttribute("transform", `rotate(${a % 360} 12 12)`);
+        requestAnimationFrame(land);
+      } else {
+        g.removeAttribute("transform");
+        resolve();
+      }
+    });
+  });
+}
+
 function openPluginsDialog() {
   const root = qs("#confirm-root");
   const openedAt = Date.now();
@@ -689,27 +783,13 @@ function openPluginsDialog() {
     onclick: async () => {
       if (refreshing) return;
       refreshing = true;
-      const svg = refreshBtn.querySelector("svg");
       const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      const spin = (svg && svg.animate && !reduce)
-        ? svg.animate(
-            [{ transform: "rotate(0deg)" }, { transform: "rotate(360deg)" }],
-            { duration: 700, iterations: Infinity, easing: "linear" })
-        : null;
+      const finishSpin = reduce ? null
+        : spinRefreshIcon(refreshBtn.querySelector("svg"));
       await loadPluginInfo();
       fillRows();
       render();
-      if (spin) {
-        const t = Number(spin.currentTime) || 0;
-        const angle = (t % 700) / 700 * 360;
-        const end = 360 * Math.ceil((angle + 180) / 360);
-        spin.cancel();
-        const finish = svg.animate(
-          [{ transform: `rotate(${angle}deg)` }, { transform: `rotate(${end}deg)` }],
-          { duration: (end - angle) / 360 * 700 * 1.5,
-            easing: "cubic-bezier(0.2, 0.3, 0.3, 1)" });
-        try { await finish.finished; } catch (e) {}
-      }
+      if (finishSpin) await finishSpin();
       refreshing = false;
     } }, icon("refresh", 16));
 
@@ -962,7 +1042,7 @@ function renderCard(card, list) {
       descEl,
       card.tags && card.tags.length
         ? h("div", { class: "card-tags" },
-            card.tags.map((t) => h("span", { class: "tag-chip" }, t)))
+            card.tags.map((t) => inlineEl("span", { class: "tag-chip" }, t)))
         : null,
       badges.length ? h("div", { class: "card-badges" }, badges) : null));
   if (card.color) el.style.borderColor = card.color;
@@ -970,9 +1050,7 @@ function renderCard(card, list) {
 }
 
 function titleView(text, cls) {
-  const el = h("div", { class: cls });
-  el.innerHTML = renderInline(text);
-  return el;
+  return inlineEl("div", { class: cls }, text);
 }
 
 
@@ -1313,11 +1391,11 @@ function tagSection(card) {
     const q = input.value.trim().toLowerCase().replace(/^#/, "");
     const opts = boardTags().filter((t) =>
       !tags.some((x) => x.toLowerCase() === t.toLowerCase()) &&
-      (!q || t.toLowerCase().includes(q))).slice(0, 50);
+      tagMatches(t, q)).slice(0, 50);
     suggest.innerHTML = "";
     if (!opts.length) { suggest.hidden = true; return; }
     for (const t of opts) {
-      suggest.append(h("button", { class: "tag-option",
+      suggest.append(inlineEl("button", { class: "tag-option",
         onmousedown: (e) => { e.preventDefault(); addTag(t); } }, t));
     }
     suggest.hidden = false;
@@ -1348,7 +1426,7 @@ function tagSection(card) {
     setTimeout(() => input.focus(), 0);
   }
   return h("div", { class: "tag-row" },
-    tags.map((t) => h("span", { class: "tag-chip" }, t,
+    tags.map((t) => h("span", { class: "tag-chip" }, inlineEl("span", {}, t),
       h("button", { class: "tag-x",
         onclick: () => saveTags(tags.filter((x) => x !== t)) }, icon("x", 11)))),
     h("div", { class: "tag-input-wrap" }, input, suggest));

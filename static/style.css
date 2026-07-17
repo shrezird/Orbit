@@ -89,8 +89,70 @@ input:focus, textarea:focus { outline: 2px solid var(--focus); outline-offset: -
   flex-shrink: 0;
 }
 
-.tag-search-input { width: 200px; padding: 6px 10px; font-size: 13px; }
-.tag-search-input.enter { animation: fade-in 0.15s ease; }
+.tag-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 28px;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.tag-search-wrap:focus-within { outline: 2px solid var(--focus); outline-offset: -1px; }
+
+.tag-search-input {
+  width: 200px;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 13px;
+  background: none;
+  border: none;
+  transition: opacity 0.15s ease;
+}
+
+.tag-search-input:focus { outline: none; }
+
+.tag-search-wrap.enter { animation: tag-search-fade 0.15s ease; }
+.tag-search-wrap.enter .tag-search-input { animation: fade-in 0.15s ease; }
+
+@keyframes tag-search-fade {
+  from { background-color: transparent; border-color: transparent; }
+}
+
+.tag-search-wrap.closing {
+  background-color: transparent;
+  border-color: transparent;
+  pointer-events: none;
+}
+
+.tag-search-wrap.closing:focus-within { outline: none; }
+.tag-search-wrap.closing .tag-search-input { opacity: 0; }
+.tag-search-wrap.closing .tag-suggest { display: none; }
+
+.tag-search-wrap.collapsed {
+  background-color: transparent;
+  border-color: transparent;
+}
+
+.tag-search-wrap.collapsed .tag-search-input { display: none; }
+
+.tag-search-wrap.open {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.tag-search-wrap .tag-search-btn { width: 27px; height: 26px; border-radius: 2px; }
+
+.tag-search-wrap .tag-suggest {
+  left: -1px;
+  right: -1px;
+  margin-top: 0;
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
+.tag-search-wrap .tag-option { font-size: 13px; }
 
 .tag-search-btn.on { color: var(--text); background: var(--panel-3); }
 
@@ -980,7 +1042,6 @@ input, textarea, .search-box {
 }
 .plugins-head-actions { display: flex; align-items: center; gap: 2px; }
 .plugin-refresh .icon { display: inline-flex; }
-.plugin-refresh svg { will-change: transform; }
 .plugin-refresh:hover { color: var(--muted); }
 .plugin-row-top {
   display: flex;
